@@ -26,56 +26,56 @@ interface VocabularyWord {
 const sampleWords: VocabularyWord[] = [
   {
     id: 1,
-    germanWord: 'Haus',
+    germanWord: 'das Haus',
     englishTranslation: 'house',
     germanSentence: 'Das Haus ist sehr schön.',
     englishSentence: 'The house is very beautiful.',
   },
   {
     id: 2,
-    germanWord: 'Buch',
+    germanWord: 'das Buch',
     englishTranslation: 'book',
     germanSentence: 'Ich lese ein interessantes Buch.',
     englishSentence: 'I am reading an interesting book.',
   },
   {
     id: 3,
-    germanWord: 'Wasser',
+    germanWord: 'das Wasser',
     englishTranslation: 'water',
     germanSentence: 'Ich trinke gerne kaltes Wasser.',
     englishSentence: 'I like to drink cold water.',
   },
   {
     id: 4,
-    germanWord: 'Freund',
+    germanWord: 'der Freund',
     englishTranslation: 'friend',
     germanSentence: 'Mein bester Freund wohnt in Berlin.',
     englishSentence: 'My best friend lives in Berlin.',
   },
   {
     id: 5,
-    germanWord: 'Arbeit',
+    germanWord: 'die Arbeit',
     englishTranslation: 'work',
     germanSentence: 'Meine Arbeit ist sehr interessant.',
     englishSentence: 'My work is very interesting.',
   },
   {
     id: 6,
-    germanWord: 'Schule',
+    germanWord: 'die Schule',
     englishTranslation: 'school',
     germanSentence: 'Die Schule beginnt um acht Uhr.',
     englishSentence: 'School starts at eight o\'clock.',
   },
   {
     id: 7,
-    germanWord: 'Auto',
+    germanWord: 'das Auto',
     englishTranslation: 'car',
     germanSentence: 'Mein Auto ist sehr schnell.',
     englishSentence: 'My car is very fast.',
   },
   {
     id: 8,
-    germanWord: 'Kaffee',
+    germanWord: 'der Kaffee',
     englishTranslation: 'coffee',
     germanSentence: 'Ich trinke jeden Morgen Kaffee.',
     englishSentence: 'I drink coffee every morning.',
@@ -200,14 +200,6 @@ export default function App() {
   const handleSwipe = (direction: 'left' | 'right' | 'up') => {
     if (isAnimating) return;
     setIsAnimating(true);
-    setShowContent(false); // Hide content during animation
-    
-    // Fade out content
-    Animated.timing(contentOpacity, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start();
 
     let newBucket: 'learning' | 'reviewing' | 'mastered';
     
@@ -238,6 +230,13 @@ export default function App() {
 
     // Animate card swipe away and next card forward
     const swipeDirection = direction === 'right' ? screenWidth : direction === 'left' ? -screenWidth : -screenHeight;
+    
+    // Hide content and fade out when animation starts
+    Animated.timing(contentOpacity, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
     
     Animated.parallel([
       // Current card swipes away
@@ -303,7 +302,8 @@ export default function App() {
       nextCardTranslateY.setValue(8);
       setIsAnimating(false);
       
-      // Show content with fade-in after a slight delay
+      // Hide content for next card, then show it with fade-in
+      setShowContent(false);
       setTimeout(() => {
         setShowContent(true);
         Animated.timing(contentOpacity, {
