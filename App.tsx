@@ -93,15 +93,15 @@ export default function App() {
   const [nextCardScale] = useState(new Animated.Value(0.95));
   const [nextCardTranslateX] = useState(new Animated.Value(8));
   const [nextCardTranslateY] = useState(new Animated.Value(8));
-  const [swipeHistory, setSwipeHistory] = useState<{wordId: number, direction: string, wordIndex: number}[]>([]);
+  const [swipeHistory, setSwipeHistory] = useState<{wordId: number, direction: string, wordIndex: number, oldBucket: 'learning' | 'reviewing' | 'mastered'}[]>([]);
   const [isAnimating, setIsAnimating] = useState(false);
   const [wordStates, setWordStates] = useState<{[key: number]: 'learning' | 'reviewing' | 'mastered'}>({});
+  const [showContent, setShowContent] = useState(true);
+  const [contentOpacity] = useState(new Animated.Value(1));
 
   const currentWord = sampleWords[currentWordIndex];
   const nextWordIndex = (currentWordIndex + 1) % sampleWords.length;
   const nextWord = sampleWords[nextWordIndex];
-  const thirdWordIndex = (currentWordIndex + 2) % sampleWords.length;
-  const thirdWord = sampleWords[thirdWordIndex];
 
   // Load saved state on app start
   useEffect(() => {
@@ -200,6 +200,14 @@ export default function App() {
   const handleSwipe = (direction: 'left' | 'right' | 'up') => {
     if (isAnimating) return;
     setIsAnimating(true);
+    setShowContent(false); // Hide content during animation
+    
+    // Fade out content
+    Animated.timing(contentOpacity, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
 
     let newBucket: 'learning' | 'reviewing' | 'mastered';
     
@@ -295,6 +303,16 @@ export default function App() {
       nextCardTranslateY.setValue(8);
       setIsAnimating(false);
       
+      // Show content with fade-in after a slight delay
+      setTimeout(() => {
+        setShowContent(true);
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }, 30);
+      
       // Save state
       saveState();
     });
@@ -352,6 +370,20 @@ export default function App() {
   };
 
 
+  const getBucketEmoji = (wordId: number) => {
+    const bucket = wordStates[wordId] || 'learning';
+    switch (bucket) {
+      case 'learning':
+        return '🔴';
+      case 'reviewing':
+        return '🟡';
+      case 'mastered':
+        return '🟢';
+      default:
+        return '⚪';
+    }
+  };
+
   return (
     <GestureHandlerRootView style={styles.container}>
     <View style={styles.container}>
@@ -384,17 +416,6 @@ export default function App() {
 
         {/* Card Deck */}
         <View style={styles.cardContainer}>
-          {/* Third card (back of deck) */}
-          <View style={[styles.cardWrapper, styles.thirdCard]}>
-            <View style={[styles.card, styles.backCard, { backgroundColor: getBucketColor(thirdWord.id) }]}>
-              <View style={styles.cardSide}>
-                <Text style={styles.germanWord}>{thirdWord.germanWord}</Text>
-                <Text style={styles.germanSentence}>{thirdWord.germanSentence}</Text>
-                <Text style={styles.tapHint}>Tap to reveal translation</Text>
-              </View>
-            </View>
-          </View>
-
           {/* Second card (next card) */}
           <Animated.View 
             style={[
@@ -409,11 +430,11 @@ export default function App() {
               }
             ]}
           >
-            <View style={[styles.card, styles.middleCard, { backgroundColor: getBucketColor(nextWord.id) }]}>
+            <View style={[styles.card, styles.middleCard, { backgroundColor: '#FFFFFF' }]}>
               <View style={styles.cardSide}>
-                <Text style={styles.germanWord}>{nextWord.germanWord}</Text>
-                <Text style={styles.germanSentence}>{nextWord.germanSentence}</Text>
-                <Text style={styles.tapHint}>Tap to reveal translation</Text>
+                <Animated.View style={{ opacity: contentOpacity }}>
+                  {/* Next card should always be blank */}
+                </Animated.View>
               </View>
             </View>
           </Animated.View>
@@ -438,7 +459,7 @@ export default function App() {
               <Animated.View
                 style={[
                   styles.card,
-                  { backgroundColor: getBucketColor(currentWord.id) },
+                  { backgroundColor: '#FFFFFF' },
                   {
                     transform: [{
                       rotateY: flipAnimation.interpolate({
@@ -456,10 +477,19 @@ export default function App() {
                 >
                   {/* Front side (German) */}
                   <View style={styles.cardSide}>
-                    <Text style={styles.germanWord}>{currentWord.germanWord}</Text>
-                    <Text style={styles.germanSentence}>{currentWord.germanSentence}</Text>
-                    <Text style={styles.tapHint}>Tap to reveal translation</Text>
+                    <Animated.View style={{ opacity: contentOpacity }}>
+                      {showContent && (
+                        <>
+                          <Text style={styles.germanWord}>{currentWord.germanWord}</Text>
+                          <Text style={styles.germanSentence}>{currentWord.germanSentence}</Text>
+                          <Text style={styles.tapHint}>Tap to reveal translation</Text>
+                        </>
+                      )}
+                    </Animated.View>
                   </View>
+                  <Animated.View style={[styles.bottomEmoji, { opacity: contentOpacity }]}>
+                    <Text style={styles.bucketEmoji}>{getBucketEmoji(currentWord.id)}</Text>
+                  </Animated.View>
                 </TouchableOpacity>
               </Animated.View>
 
@@ -468,7 +498,7 @@ export default function App() {
                 style={[
                   styles.card,
                   styles.cardBack,
-                  { backgroundColor: getBucketColor(currentWord.id) },
+                  { backgroundColor: '#FFFFFF' },
                   {
                     transform: [{
                       rotateY: flipAnimation.interpolate({
@@ -486,9 +516,15 @@ export default function App() {
                 >
                   {/* Back side (English) */}
                   <View style={styles.cardSide}>
-                    <Text style={styles.englishTranslation}>{currentWord.englishTranslation}</Text>
-                    <Text style={styles.englishSentence}>{currentWord.englishSentence}</Text>
-                    <Text style={styles.tapHint}>Tap to flip back</Text>
+                    <Animated.View style={{ opacity: contentOpacity }}>
+                      {showContent && (
+                        <>
+                          <Text style={styles.englishTranslation}>{currentWord.englishTranslation}</Text>
+                          <Text style={styles.englishSentence}>{currentWord.englishSentence}</Text>
+                          <Text style={styles.tapHint}>Tap to flip back</Text>
+                        </>
+                      )}
+                    </Animated.View>
                   </View>
                 </TouchableOpacity>
               </Animated.View>
@@ -568,10 +604,6 @@ const styles = StyleSheet.create({
   secondCard: {
     zIndex: 2,
   },
-  thirdCard: {
-    zIndex: 1,
-    transform: [{ translateX: 16 }, { translateY: 16 }, { scale: 0.9 }],
-  },
   card: {
     width: '100%',
     height: '100%',
@@ -587,11 +619,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 12,
-  },
-  backCard: {
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
   },
   middleCard: {
     shadowOpacity: 0.3,
@@ -614,6 +641,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  bottomEmoji: {
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
+  },
+  bucketEmoji: {
+    fontSize: 24,
+  },
   cardBack: {
     position: 'absolute',
     top: 0,
@@ -623,48 +658,37 @@ const styles = StyleSheet.create({
   germanWord: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     marginBottom: 20,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   germanSentence: {
     fontSize: 18,
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     marginBottom: 30,
     lineHeight: 24,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   englishTranslation: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     marginBottom: 20,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   englishSentence: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     marginBottom: 30,
     lineHeight: 22,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   tapHint: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#000000',
     textAlign: 'center',
     fontStyle: 'italic',
+    opacity: 0.6,
   },
   instructions: {
     marginTop: 30,
