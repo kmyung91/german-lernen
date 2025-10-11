@@ -6,136 +6,87 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ThemeProvider, useTheme } from './theme-context';
+import { createTextStyle, createCardStyle } from './design-system';
+import * as Database from './database';
+import type { Word, BucketType } from './database';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const CARD_WIDTH = screenWidth * 0.9;
 const CARD_HEIGHT = screenHeight * 0.6;
 
-interface VocabularyWord {
-  id: number;
-  germanWord: string;
-  englishTranslation: string;
-  germanSentence: string;
-  englishSentence: string;
-}
-
-// Sample vocabulary data
-const sampleWords: VocabularyWord[] = [
-  {
-    id: 1,
-    germanWord: 'das Haus',
-    englishTranslation: 'house',
-    germanSentence: 'Das Haus ist sehr schön.',
-    englishSentence: 'The house is very beautiful.',
-  },
-  {
-    id: 2,
-    germanWord: 'das Buch',
-    englishTranslation: 'book',
-    germanSentence: 'Ich lese ein interessantes Buch.',
-    englishSentence: 'I am reading an interesting book.',
-  },
-  {
-    id: 3,
-    germanWord: 'das Wasser',
-    englishTranslation: 'water',
-    germanSentence: 'Ich trinke gerne kaltes Wasser.',
-    englishSentence: 'I like to drink cold water.',
-  },
-  {
-    id: 4,
-    germanWord: 'der Freund',
-    englishTranslation: 'friend',
-    germanSentence: 'Mein bester Freund wohnt in Berlin.',
-    englishSentence: 'My best friend lives in Berlin.',
-  },
-  {
-    id: 5,
-    germanWord: 'die Arbeit',
-    englishTranslation: 'work',
-    germanSentence: 'Meine Arbeit ist sehr interessant.',
-    englishSentence: 'My work is very interesting.',
-  },
-  {
-    id: 6,
-    germanWord: 'die Schule',
-    englishTranslation: 'school',
-    germanSentence: 'Die Schule beginnt um acht Uhr.',
-    englishSentence: 'School starts at eight o\'clock.',
-  },
-  {
-    id: 7,
-    germanWord: 'das Auto',
-    englishTranslation: 'car',
-    germanSentence: 'Mein Auto ist sehr schnell.',
-    englishSentence: 'My car is very fast.',
-  },
-  {
-    id: 8,
-    germanWord: 'der Kaffee',
-    englishTranslation: 'coffee',
-    germanSentence: 'Ich trinke jeden Morgen Kaffee.',
-    englishSentence: 'I drink coffee every morning.',
-  },
-];
-
-export default function App() {
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
+function AppContent() {
+  const { designTokens, toggleTheme } = useTheme();
+  const styles = createStyles(designTokens);
+  
+  // Database state
+  const [dbInitialized, setDbInitialized] = useState(false);
+  const [currentWord, setCurrentWord] = useState<Word | null>(null);
+  const [nextWord, setNextWord] = useState<Word | null>(null);
+  const [bucketCounts, setBucketCounts] = useState({ dontKnow: 0, know: 0, total: 0 });
+  
+  // Animation state
   const [isFlipped, setIsFlipped] = useState(false);
-  const [wordsMastered, setWordsMastered] = useState(0);
-  const [bucketCounts, setBucketCounts] = useState({ learning: 8, reviewing: 0, mastered: 0 });
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showContent, setShowContent] = useState(true);
   const [translateX] = useState(new Animated.Value(0));
   const [translateY] = useState(new Animated.Value(0));
   const [flipAnimation] = useState(new Animated.Value(0));
   const [nextCardScale] = useState(new Animated.Value(0.95));
   const [nextCardTranslateX] = useState(new Animated.Value(8));
   const [nextCardTranslateY] = useState(new Animated.Value(8));
-  const [swipeHistory, setSwipeHistory] = useState<{wordId: number, direction: string, wordIndex: number, oldBucket: 'learning' | 'reviewing' | 'mastered'}[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [wordStates, setWordStates] = useState<{[key: number]: 'learning' | 'reviewing' | 'mastered'}>({});
-  const [showContent, setShowContent] = useState(true);
   const [contentOpacity] = useState(new Animated.Value(1));
+  
+  // Undo history
+  const [swipeHistory, setSwipeHistory] = useState<{
+    wordId: number;
+    direction: 'left' | 'right' | 'up';
+    oldBucket: BucketType | null;
+  }[]>([]);
 
-  const currentWord = sampleWords[currentWordIndex];
-  const nextWordIndex = (currentWordIndex + 1) % sampleWords.length;
-  const nextWord = sampleWords[nextWordIndex];
-
-  // Load saved state on app start
+  // Initialize database on app start
   useEffect(() => {
-    loadSavedState();
+    initApp();
   }, []);
 
-  const loadSavedState = async () => {
+  // Load words when database is ready
+  useEffect(() => {
+    if (dbInitialized) {
+      loadWords();
+      updateBucketCounts();
+    }
+  }, [dbInitialized]);
+
+  const initApp = async () => {
     try {
-      const savedState = await AsyncStorage.getItem('germanAppState');
-      if (savedState) {
-        const state = JSON.parse(savedState);
-        setCurrentWordIndex(state.currentWordIndex || 0);
-        setWordsMastered(state.wordsMastered || 0);
-        setBucketCounts(state.bucketCounts || { learning: 8, reviewing: 0, mastered: 0 });
-        setWordStates(state.wordStates || {});
-        setSwipeHistory(state.swipeHistory || []);
-      }
+      await Database.initDatabase();
+      setDbInitialized(true);
     } catch (error) {
-      console.log('Error loading saved state:', error);
+      console.error('Error initializing app:', error);
     }
   };
 
-  const saveState = async () => {
+  const loadWords = () => {
     try {
-      const state = {
-        currentWordIndex,
-        wordsMastered,
-        bucketCounts,
-        wordStates,
-        swipeHistory,
-      };
-      await AsyncStorage.setItem('germanAppState', JSON.stringify(state));
+      const current = Database.getNextWord();
+      const next = Database.getNextWord();
+      
+      setCurrentWord(current);
+      setNextWord(next);
     } catch (error) {
-      console.log('Error saving state:', error);
+      console.error('Error loading words:', error);
+    }
+  };
+
+  const updateBucketCounts = () => {
+    try {
+      const counts = Database.getBucketCounts();
+      setBucketCounts(counts);
+    } catch (error) {
+      console.error('Error updating bucket counts:', error);
     }
   };
 
@@ -198,40 +149,28 @@ export default function App() {
   };
 
   const handleSwipe = (direction: 'left' | 'right' | 'up') => {
-    if (isAnimating) return;
+    if (isAnimating || !currentWord) return;
     setIsAnimating(true);
 
-    let newBucket: 'learning' | 'reviewing' | 'mastered';
+    // Determine bucket and removal status
+    const isRemove = direction === 'up';
+    let newBucket: BucketType = direction === 'right' ? 'know' : 'dontKnow';
     
-    switch (direction) {
-      case 'right':
-        newBucket = 'mastered';
-        break;
-      case 'left':
-        newBucket = 'reviewing';
-        break;
-      case 'up':
-        newBucket = 'learning';
-        break;
-      default:
-        newBucket = 'learning';
-    }
+    // Get old bucket from database
+    const progress = Database.getUserProgress(currentWord.id);
+    const oldBucket = progress?.bucket || null;
 
-    // Store the old bucket for later use
-    const oldBucket = wordStates[currentWord.id] || 'learning';
-
-    // Add to swipe history for undo (but don't update state yet)
+    // Add to swipe history
     setSwipeHistory(prev => [{ 
       wordId: currentWord.id, 
       direction, 
-      wordIndex: currentWordIndex,
       oldBucket: oldBucket
     }, ...prev.slice(0, 9)]);
 
-    // Animate card swipe away and next card forward
+    // Animate card swipe away
     const swipeDirection = direction === 'right' ? screenWidth : direction === 'left' ? -screenWidth : -screenHeight;
     
-    // Hide content and fade out when animation starts
+    // Fade out content
     Animated.timing(contentOpacity, {
       toValue: 0,
       duration: 150,
@@ -239,7 +178,6 @@ export default function App() {
     }).start();
     
     Animated.parallel([
-      // Current card swipes away
       Animated.timing(translateX, {
         toValue: direction === 'up' ? 0 : swipeDirection,
         duration: 300,
@@ -250,7 +188,6 @@ export default function App() {
         duration: 300,
         useNativeDriver: true,
       }),
-      // Next card moves to center
       Animated.timing(nextCardScale, {
         toValue: 1,
         duration: 300,
@@ -267,30 +204,19 @@ export default function App() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // NOW update the word state after animation completes
-      setWordStates(prev => ({
-        ...prev,
-        [currentWord.id]: newBucket
-      }));
-
-      // Update bucket counts properly
-      setBucketCounts(prev => {
-        const newCounts = { ...prev };
-        newCounts[oldBucket] = Math.max(0, newCounts[oldBucket] - 1);
-        newCounts[newBucket] = newCounts[newBucket] + 1;
-        return newCounts;
-      });
-
-      // Update mastered count
-      if (newBucket === 'mastered' && oldBucket !== 'mastered') {
-        setWordsMastered(prev => prev + 1);
-      } else if (oldBucket === 'mastered' && newBucket !== 'mastered') {
-        setWordsMastered(prev => Math.max(0, prev - 1));
+      // Update database
+      try {
+        Database.updateProgress(currentWord.id, newBucket, isRemove);
+        updateBucketCounts();
+      } catch (error) {
+        console.error('Error updating progress:', error);
       }
 
       // Move to next word
-      const newIndex = (currentWordIndex + 1) % sampleWords.length;
-      setCurrentWordIndex(newIndex);
+      setCurrentWord(nextWord);
+      const newNext = Database.getNextWord();
+      setNextWord(newNext);
+      
       setIsFlipped(false);
       flipAnimation.setValue(0);
       
@@ -302,7 +228,7 @@ export default function App() {
       nextCardTranslateY.setValue(8);
       setIsAnimating(false);
       
-      // Hide content for next card, then show it with fade-in
+      // Fade in content
       setShowContent(false);
       setTimeout(() => {
         setShowContent(true);
@@ -312,9 +238,6 @@ export default function App() {
           useNativeDriver: true,
         }).start();
       }, 30);
-      
-      // Save state
-      saveState();
     });
   };
 
@@ -324,65 +247,36 @@ export default function App() {
     const lastAction = swipeHistory[0];
     setSwipeHistory(prev => prev.slice(1));
     
-    // Restore previous word state
-    setWordStates(prev => ({
-      ...prev,
-      [lastAction.wordId]: lastAction.oldBucket
-    }));
-    
-    // Restore previous bucket counts
-    const currentBucket = wordStates[lastAction.wordId] || 'learning';
-    setBucketCounts(prev => {
-      const newCounts = { ...prev };
-      newCounts[currentBucket] = Math.max(0, newCounts[currentBucket] - 1);
-      newCounts[lastAction.oldBucket] = newCounts[lastAction.oldBucket] + 1;
-      return newCounts;
-    });
-    
-    // Restore mastered count
-    if (currentBucket === 'mastered' && lastAction.oldBucket !== 'mastered') {
-      setWordsMastered(prev => Math.max(0, prev - 1));
-    } else if (lastAction.oldBucket === 'mastered' && currentBucket !== 'mastered') {
-      setWordsMastered(prev => prev + 1);
-    }
-    
-    // Go back to previous word
-    setCurrentWordIndex(lastAction.wordIndex);
-    setIsFlipped(false);
-    flipAnimation.setValue(0);
-    
-    // Save state
-    saveState();
-  };
-
-  const getBucketColor = (wordId: number) => {
-    const bucket = wordStates[wordId] || 'learning';
-    switch (bucket) {
-      case 'learning':
-        return '#FF6B6B';
-      case 'reviewing':
-        return '#FFD93D';
-      case 'mastered':
-        return '#6BCF7F';
-      default:
-        return '#E0E0E0';
+    // Restore previous word state in database
+    try {
+      if (lastAction.oldBucket) {
+        Database.updateProgress(lastAction.wordId, lastAction.oldBucket, false);
+      }
+      
+      // Reload words and update counts
+      loadWords();
+      updateBucketCounts();
+      
+      setIsFlipped(false);
+      flipAnimation.setValue(0);
+    } catch (error) {
+      console.error('Error undoing action:', error);
     }
   };
 
-
-  const getBucketEmoji = (wordId: number) => {
-    const bucket = wordStates[wordId] || 'learning';
-    switch (bucket) {
-      case 'learning':
-        return '🔴';
-      case 'reviewing':
-        return '🟡';
-      case 'mastered':
-        return '🟢';
-      default:
-        return '⚪';
-    }
-  };
+  // Show loading state while database initializes
+  if (!dbInitialized || !currentWord) {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color={designTokens.colors.primary} />
+          <Text style={{ marginTop: 16, color: designTokens.colors.textSecondary }}>
+            Loading vocabulary...
+          </Text>
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -391,27 +285,29 @@ export default function App() {
         <View style={styles.header}>
           <View style={styles.progressContainer}>
             <Text style={styles.progressText}>
-              {wordsMastered} / {sampleWords.length} words mastered
+              {bucketCounts.know} / {bucketCounts.total} words known
             </Text>
             <View style={styles.bucketStats}>
-              <Text style={[styles.bucketText, { color: '#FF6B6B' }]}>
-                🔴 {bucketCounts.learning}
+              <Text style={[styles.bucketText, { color: designTokens.colors.error }]}>
+                ❓ {bucketCounts.dontKnow}
               </Text>
-              <Text style={[styles.bucketText, { color: '#FFD93D' }]}>
-                🟡 {bucketCounts.reviewing}
-              </Text>
-              <Text style={[styles.bucketText, { color: '#6BCF7F' }]}>
-                🟢 {bucketCounts.mastered}
+              <Text style={[styles.bucketText, { color: designTokens.colors.success }]}>
+                ✓ {bucketCounts.know}
               </Text>
             </View>
           </View>
           
-          {/* Undo button */}
-          {swipeHistory.length > 0 && (
-            <TouchableOpacity style={styles.undoButton} onPress={handleUndo}>
-              <Text style={styles.undoButtonText}>↶ Undo</Text>
-            </TouchableOpacity>
-          )}
+              {/* Undo button and Theme toggle */}
+              <View style={styles.headerActions}>
+                {swipeHistory.length > 0 && (
+                  <TouchableOpacity style={styles.undoButton} onPress={handleUndo}>
+                    <Text style={styles.undoButtonText}>↩️</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.themeButton} onPress={toggleTheme}>
+                  <Text style={styles.themeButtonText}>🌙</Text>
+                </TouchableOpacity>
+              </View>
         </View>
 
         {/* Card Deck */}
@@ -430,7 +326,7 @@ export default function App() {
               }
             ]}
           >
-            <View style={[styles.card, styles.middleCard, { backgroundColor: '#FFFFFF' }]}>
+            <View style={[styles.card, styles.middleCard, { backgroundColor: designTokens.colors.card }]}>
               <View style={styles.cardSide}>
                 <Animated.View style={{ opacity: contentOpacity }}>
                   {/* Next card should always be blank */}
@@ -459,7 +355,7 @@ export default function App() {
               <Animated.View
                 style={[
                   styles.card,
-                  { backgroundColor: '#FFFFFF' },
+                  { backgroundColor: designTokens.colors.card },
                   {
                     transform: [{
                       rotateY: flipAnimation.interpolate({
@@ -480,16 +376,13 @@ export default function App() {
                     <Animated.View style={{ opacity: contentOpacity }}>
                       {showContent && (
                         <>
-                          <Text style={styles.germanWord}>{currentWord.germanWord}</Text>
-                          <Text style={styles.germanSentence}>{currentWord.germanSentence}</Text>
+                          <Text style={styles.germanWord}>{currentWord.german}</Text>
+                          <Text style={styles.germanSentence}>{currentWord.german_example}</Text>
                           <Text style={styles.tapHint}>Tap to reveal translation</Text>
                         </>
                       )}
                     </Animated.View>
                   </View>
-                  <Animated.View style={[styles.bottomEmoji, { opacity: contentOpacity }]}>
-                    <Text style={styles.bucketEmoji}>{getBucketEmoji(currentWord.id)}</Text>
-                  </Animated.View>
                 </TouchableOpacity>
               </Animated.View>
 
@@ -498,7 +391,7 @@ export default function App() {
                 style={[
                   styles.card,
                   styles.cardBack,
-                  { backgroundColor: '#FFFFFF' },
+                  { backgroundColor: designTokens.colors.card },
                   {
                     transform: [{
                       rotateY: flipAnimation.interpolate({
@@ -519,8 +412,8 @@ export default function App() {
                     <Animated.View style={{ opacity: contentOpacity }}>
                       {showContent && (
                         <>
-                          <Text style={styles.englishTranslation}>{currentWord.englishTranslation}</Text>
-                          <Text style={styles.englishSentence}>{currentWord.englishSentence}</Text>
+                          <Text style={styles.englishTranslation}>{currentWord.english}</Text>
+                          <Text style={styles.englishSentence}>{currentWord.english_example}</Text>
                           <Text style={styles.tapHint}>Tap to flip back</Text>
                         </>
                       )}
@@ -535,7 +428,7 @@ export default function App() {
         {/* Swipe instructions */}
         <View style={styles.instructions}>
           <Text style={styles.instructionText}>
-            Swipe right: Mastered • Swipe left: Learning • Swipe up: Priority
+            Swipe right: Know • Swipe left: Don't Know • Swipe up: Remove
           </Text>
         </View>
     </View>
@@ -543,49 +436,59 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (designTokens: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: designTokens.colors.background,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: designTokens.spacing.lg,
+    paddingTop: designTokens.spacing['3xl'],
+    paddingBottom: designTokens.spacing.lg,
+    backgroundColor: designTokens.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: designTokens.colors.border,
   },
   progressContainer: {
     flex: 1,
   },
   progressText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: designTokens.typography.fontSize.lg,
+    fontWeight: designTokens.typography.fontWeight.bold,
+    color: designTokens.colors.textPrimary,
+    marginBottom: designTokens.spacing.sm,
   },
   bucketStats: {
     flexDirection: 'row',
-    gap: 15,
+    gap: designTokens.spacing.md,
   },
   bucketText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: designTokens.typography.fontSize.sm,
+    fontWeight: designTokens.typography.fontWeight.semibold,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designTokens.spacing.sm,
+  },
+  themeButton: {
+    padding: designTokens.spacing.sm,
+    borderRadius: designTokens.borderRadius.md,
+    backgroundColor: designTokens.colors.surface,
+  },
+  themeButtonText: {
+    fontSize: designTokens.typography.fontSize.lg,
   },
   undoButton: {
-    backgroundColor: '#FF6B6B',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 15,
+    padding: designTokens.spacing.sm,
+    borderRadius: designTokens.borderRadius.md,
+    backgroundColor: designTokens.colors.surface,
   },
   undoButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: designTokens.typography.fontSize.lg,
   },
   cardContainer: {
     flex: 1,
@@ -656,49 +559,57 @@ const styles = StyleSheet.create({
     backfaceVisibility: 'hidden',
   },
   germanWord: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#000000',
+    fontSize: designTokens.typography.fontSize['3xl'],
+    fontWeight: designTokens.typography.fontWeight.bold,
+    color: designTokens.colors.textPrimary,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: designTokens.spacing.lg,
   },
   germanSentence: {
-    fontSize: 18,
-    color: '#000000',
+    fontSize: designTokens.typography.fontSize.lg,
+    color: designTokens.colors.textPrimary,
     textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
+    marginBottom: designTokens.spacing.xl,
+    lineHeight: designTokens.typography.lineHeight.normal * designTokens.typography.fontSize.lg,
   },
   englishTranslation: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000000',
+    fontSize: designTokens.typography.fontSize['2xl'],
+    fontWeight: designTokens.typography.fontWeight.bold,
+    color: designTokens.colors.textPrimary,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: designTokens.spacing.lg,
   },
   englishSentence: {
-    fontSize: 16,
-    color: '#000000',
+    fontSize: designTokens.typography.fontSize.base,
+    color: designTokens.colors.textPrimary,
     textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
+    marginBottom: designTokens.spacing.xl,
+    lineHeight: designTokens.typography.lineHeight.normal * designTokens.typography.fontSize.base,
   },
   tapHint: {
-    fontSize: 14,
-    color: '#000000',
+    fontSize: designTokens.typography.fontSize.sm,
+    color: designTokens.colors.textSecondary,
     textAlign: 'center',
     fontStyle: 'italic',
-    opacity: 0.6,
+    opacity: 0.7,
   },
   instructions: {
-    marginTop: 30,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    marginTop: designTokens.spacing.xl,
+    paddingHorizontal: designTokens.spacing.lg,
+    paddingBottom: designTokens.spacing['2xl'],
   },
   instructionText: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: designTokens.typography.fontSize.sm,
+    color: designTokens.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: designTokens.typography.lineHeight.normal * designTokens.typography.fontSize.sm,
   },
 });
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
