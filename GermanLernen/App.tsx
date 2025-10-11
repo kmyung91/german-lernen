@@ -217,16 +217,35 @@ export default function App() {
         newBucket = 'learning';
     }
 
-    // Store the old bucket for later use
-    const oldBucket = wordStates[currentWord.id] || 'learning';
-
-    // Add to swipe history for undo (but don't update state yet)
+    // Add to swipe history for undo
     setSwipeHistory(prev => [{ 
       wordId: currentWord.id, 
       direction, 
       wordIndex: currentWordIndex,
-      oldBucket: oldBucket
+      oldBucket: wordStates[currentWord.id] || 'learning'
     }, ...prev.slice(0, 9)]);
+
+    // Update word state
+    const oldBucket = wordStates[currentWord.id] || 'learning';
+    setWordStates(prev => ({
+      ...prev,
+      [currentWord.id]: newBucket
+    }));
+
+    // Update bucket counts properly
+    setBucketCounts(prev => {
+      const newCounts = { ...prev };
+      newCounts[oldBucket] = Math.max(0, newCounts[oldBucket] - 1);
+      newCounts[newBucket] = newCounts[newBucket] + 1;
+      return newCounts;
+    });
+
+    // Update mastered count
+    if (newBucket === 'mastered' && oldBucket !== 'mastered') {
+      setWordsMastered(prev => prev + 1);
+    } else if (oldBucket === 'mastered' && newBucket !== 'mastered') {
+      setWordsMastered(prev => Math.max(0, prev - 1));
+    }
 
     // Animate card swipe away and next card forward
     const swipeDirection = direction === 'right' ? screenWidth : direction === 'left' ? -screenWidth : -screenHeight;
@@ -260,27 +279,6 @@ export default function App() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // NOW update the word state after animation completes
-      setWordStates(prev => ({
-        ...prev,
-        [currentWord.id]: newBucket
-      }));
-
-      // Update bucket counts properly
-      setBucketCounts(prev => {
-        const newCounts = { ...prev };
-        newCounts[oldBucket] = Math.max(0, newCounts[oldBucket] - 1);
-        newCounts[newBucket] = newCounts[newBucket] + 1;
-        return newCounts;
-      });
-
-      // Update mastered count
-      if (newBucket === 'mastered' && oldBucket !== 'mastered') {
-        setWordsMastered(prev => prev + 1);
-      } else if (oldBucket === 'mastered' && newBucket !== 'mastered') {
-        setWordsMastered(prev => Math.max(0, prev - 1));
-      }
-
       // Move to next word
       const newIndex = (currentWordIndex + 1) % sampleWords.length;
       setCurrentWordIndex(newIndex);
@@ -351,6 +349,19 @@ export default function App() {
     }
   };
 
+  const getBucketEmoji = (wordId: number) => {
+    const bucket = wordStates[wordId] || 'learning';
+    switch (bucket) {
+      case 'learning':
+        return '🔴';
+      case 'reviewing':
+        return '🟡';
+      case 'mastered':
+        return '🟢';
+      default:
+        return '⚪';
+    }
+  };
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -387,10 +398,12 @@ export default function App() {
           {/* Third card (back of deck) */}
           <View style={[styles.cardWrapper, styles.thirdCard]}>
             <View style={[styles.card, styles.backCard, { backgroundColor: getBucketColor(thirdWord.id) }]}>
-              <View style={styles.cardSide}>
+              <View style={styles.bucketIndicator}>
+                <Text style={styles.bucketEmoji}>{getBucketEmoji(thirdWord.id)}</Text>
+              </View>
+              <View style={styles.cardContent}>
                 <Text style={styles.germanWord}>{thirdWord.germanWord}</Text>
                 <Text style={styles.germanSentence}>{thirdWord.germanSentence}</Text>
-                <Text style={styles.tapHint}>Tap to reveal translation</Text>
               </View>
             </View>
           </View>
@@ -410,10 +423,12 @@ export default function App() {
             ]}
           >
             <View style={[styles.card, styles.middleCard, { backgroundColor: getBucketColor(nextWord.id) }]}>
-              <View style={styles.cardSide}>
+              <View style={styles.bucketIndicator}>
+                <Text style={styles.bucketEmoji}>{getBucketEmoji(nextWord.id)}</Text>
+              </View>
+              <View style={styles.cardContent}>
                 <Text style={styles.germanWord}>{nextWord.germanWord}</Text>
                 <Text style={styles.germanSentence}>{nextWord.germanSentence}</Text>
-                <Text style={styles.tapHint}>Tap to reveal translation</Text>
               </View>
             </View>
           </Animated.View>
@@ -454,6 +469,11 @@ export default function App() {
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
+                  {/* Bucket indicator */}
+                  <View style={styles.bucketIndicator}>
+                    <Text style={styles.bucketEmoji}>{getBucketEmoji(currentWord.id)}</Text>
+                  </View>
+
                   {/* Front side (German) */}
                   <View style={styles.cardSide}>
                     <Text style={styles.germanWord}>{currentWord.germanWord}</Text>
@@ -484,6 +504,11 @@ export default function App() {
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
+                  {/* Bucket indicator */}
+                  <View style={styles.bucketIndicator}>
+                    <Text style={styles.bucketEmoji}>{getBucketEmoji(currentWord.id)}</Text>
+                  </View>
+
                   {/* Back side (English) */}
                   <View style={styles.cardSide}>
                     <Text style={styles.englishTranslation}>{currentWord.englishTranslation}</Text>
@@ -597,6 +622,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  bucketIndicator: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+  },
+  bucketEmoji: {
+    fontSize: 24,
   },
   cardContent: {
     flex: 1,
