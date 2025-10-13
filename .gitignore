@@ -39,3 +39,56 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# ==========================================
+# PROJECT-SPECIFIC CLEANUP
+# ==========================================
+
+# Backup files
+*.backup.tsx
+*.backup.js
+*.old.*
+
+# Database development artifacts
+assets/german-vocabulary-backup-*.db
+assets/german-vocabulary-old.db
+assets/german-vocabulary-short.db
+assets/german-vocabulary-with-*.db
+assets/german-vocabulary-without-*.db
+assets/german-vocabulary-before-*.db
+assets/german-vocabulary-freedict-*.db
+assets/german-vocabulary-full-*.db
+
+# Keep only the production database
+!assets/german-vocabulary.db
+
+# Script artifacts (raw data, intermediate files)
+scripts/*.csv
+scripts/*.tsv
+scripts/*.txt
+scripts/*.xml
+scripts/*.xz
+scripts/*.apkg
+scripts/*.db
+scripts/deu-eng/
+scripts/temp_*/
+scripts/anki-plan.md
+
+# Analysis/test scripts (not needed for production builds)
+scripts/analyze-*.js
+scripts/audit-*.js
+scripts/check-*.js
+scripts/verify-*.js
+scripts/show-*.js
+
+# Legacy/unused components
+components/CardStack.tsx
+components/SimpleCardStack.tsx
+components/VocabularyCard.tsx
+
+# Legacy data files
+data/
+
+# Old documentation files
+INTEGRATION_STATUS.md
+IMPLEMENTATION_COMPLETE.md
