@@ -17,6 +17,7 @@ import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-g
 import Svg, { Circle } from 'react-native-svg';
 import { ThemeProvider, useTheme } from './theme-context';
 import { createTextStyle, createCardStyle } from './design-system';
+import { Onboarding } from './components/Onboarding';
 import * as Database from './database';
 import type { Word, BucketType } from './database';
 
@@ -40,7 +41,32 @@ const getCardIndicatorEmoji = (bucket: string, lastSeen: number | null): string 
 
 function AppContent() {
   const { designTokens, toggleTheme } = useTheme();
+  
+  // Safety check for design tokens
+  if (!designTokens || !designTokens.colors) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' }}>
+        <Text>Loading theme...</Text>
+      </View>
+    );
+  }
+  
   const styles = createStyles(designTokens);
+  
+  // Onboarding state - only show once
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  
+  // Check if onboarding was completed - moved to after database init
+  
+  const handleOnboardingComplete = () => {
+    try {
+      Database.setOnboardingCompleted();
+      setShowOnboarding(false);
+    } catch (error) {
+      console.log('Error saving onboarding status:', error);
+      setShowOnboarding(false); // Hide anyway
+    }
+  };
   
   // Database state
   const [dbInitialized, setDbInitialized] = useState(false);
@@ -81,6 +107,23 @@ function AppContent() {
   useEffect(() => {
     initApp();
   }, []);
+
+  // Check onboarding status after database is initialized
+  useEffect(() => {
+    if (dbInitialized) {
+      const checkOnboardingStatus = () => {
+        try {
+          const completed = Database.getOnboardingCompleted();
+          setShowOnboarding(!completed);
+          console.log('Onboarding status checked:', completed ? 'completed' : 'not completed');
+        } catch (error) {
+          console.log('Error checking onboarding status:', error);
+          setShowOnboarding(true); // Show onboarding if we can't check
+        }
+      };
+      checkOnboardingStatus();
+    }
+  }, [dbInitialized]);
 
   // Load words when database is ready
   useEffect(() => {
@@ -177,13 +220,49 @@ function AppContent() {
     setIsFlipped(!isFlipped);
   };
 
+  // Swipe color animations
+  const swipeColorOpacity = useRef(new Animated.Value(0)).current;
+  const swipeColor = useRef(new Animated.Value(0)).current; // 0=red, 1=yellow, 2=green
+
   const onGestureEvent = Animated.event(
     [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
-    { useNativeDriver: true }
+    { 
+      useNativeDriver: true,
+      listener: (event: any) => {
+        const { translationX, translationY } = event.nativeEvent;
+        
+        // Calculate swipe direction and intensity
+        const horizontalDistance = Math.abs(translationX);
+        const verticalDistance = Math.abs(translationY);
+        
+        // Show color feedback when swiping
+        if (horizontalDistance > 20 || verticalDistance > 20) {
+          swipeColorOpacity.setValue(0.3);
+          
+          // Determine color based on direction
+          if (translationY < -50) {
+            // Up swipe - green
+            swipeColor.setValue(2);
+          } else if (translationX < -50) {
+            // Left swipe - red
+            swipeColor.setValue(0);
+          } else if (translationX > 50) {
+            // Right swipe - yellow
+            swipeColor.setValue(1);
+          }
+        } else {
+          // Hide color feedback when not swiping
+          swipeColorOpacity.setValue(0);
+        }
+      }
+    }
   );
 
   const onHandlerStateChange = (event: any) => {
     if (event.nativeEvent.state === State.END) {
+      // Reset swipe color animation
+      swipeColorOpacity.setValue(0);
+      
       const { translationX, translationY, velocityX, velocityY } = event.nativeEvent;
       
       const swipeThreshold = 100;
@@ -363,6 +442,11 @@ function AppContent() {
       console.error('Error undoing action:', error);
     }
   };
+
+  // Show onboarding if first time
+  if (showOnboarding) {
+    return <Onboarding onComplete={handleOnboardingComplete} />;
+  }
 
   // Show loading state while database initializes
   if (!dbInitialized || !currentWord) {
@@ -574,6 +658,20 @@ function AppContent() {
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
+                  {/* Swipe color overlay */}
+                  <Animated.View
+                    style={[
+                      styles.swipeColorOverlay,
+                      {
+                        opacity: swipeColorOpacity,
+                        backgroundColor: swipeColor.interpolate({
+                          inputRange: [0, 1, 2],
+                          outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
+                        }),
+                      },
+                    ]}
+                  />
+                  
                   {/* Front side (German) */}
                   <View style={styles.cardSide}>
                     <Animated.View style={{ opacity: contentOpacity }}>
@@ -618,6 +716,20 @@ function AppContent() {
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
+                  {/* Swipe color overlay */}
+                  <Animated.View
+                    style={[
+                      styles.swipeColorOverlay,
+                      {
+                        opacity: swipeColorOpacity,
+                        backgroundColor: swipeColor.interpolate({
+                          inputRange: [0, 1, 2],
+                          outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
+                        }),
+                      },
+                    ]}
+                  />
+                  
                   {/* Back side (English) */}
                   <View style={styles.cardSide}>
                     <Animated.View style={{ opacity: contentOpacity }}>
@@ -892,6 +1004,14 @@ const createStyles = (designTokens: any) => StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  swipeColorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: designTokens.borderRadius.lg,
   },
   cardSide: {
     flex: 1,

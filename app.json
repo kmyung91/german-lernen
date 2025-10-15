@@ -1,28 +1,30 @@
 {
   "expo": {
-    "name": "german-lernen-v4.5",
-    "slug": "german-lernen-v4.5",
+    "name": "Currywort",
+    "slug": "currywort",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": false,
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.yeasypz.german-lernen-v4.5"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kmyung1991.currywort",
+      "infoPlist": {
+        "UIBackgroundModes": [],
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "package": "com.kmyung1991.currywort"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,6 +32,12 @@
     "plugins": [
       "expo-sqlite",
       "expo-asset"
-    ]
+    ],
+    "owner": "kmyung1991",
+    "extra": {
+      "eas": {
+        "projectId": "11178d42-f29a-4e73-aa70-1c9fa8c4c257"
+      }
+    }
   }
 }

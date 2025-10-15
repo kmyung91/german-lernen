@@ -119,6 +119,16 @@ function runMigrations(): void {
       );
     `);
     
+    // Create app_settings table if it doesn't exist
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+      );
+    `);
+    
     // Create indexes
     db.execSync(`
       CREATE INDEX IF NOT EXISTS idx_user_edits_word_id ON user_edits(word_id);
@@ -460,6 +470,44 @@ export function resetWordProgress(wordId: number): void {
     throw error;
   }
 }
+
+// Onboarding functions
+export const getOnboardingCompleted = (): boolean => {
+  if (!db) {
+    console.log('❌ Database not initialized when checking onboarding status');
+    return false;
+  }
+  
+  try {
+    const result = db.getFirstSync<{ value: string }>(
+      'SELECT value FROM app_settings WHERE key = ?',
+      ['onboarding_completed']
+    );
+    console.log('🔍 Onboarding query result:', result);
+    return result?.value === 'true';
+  } catch (error) {
+    console.error('Error getting onboarding status:', error);
+    return false;
+  }
+};
+
+export const setOnboardingCompleted = (): void => {
+  if (!db) {
+    console.log('❌ Database not initialized when setting onboarding status');
+    return;
+  }
+  
+  try {
+    db.runSync(
+      'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+      ['onboarding_completed', 'true']
+    );
+    console.log('✅ Onboarding status saved to database');
+  } catch (error) {
+    console.error('Error setting onboarding status:', error);
+    throw error;
+  }
+};
 
 // Close database
 export function closeDatabase(): void {
