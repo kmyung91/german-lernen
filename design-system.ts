@@ -116,11 +116,11 @@ export interface DesignTokens {
 // Light theme
 export const lightTheme: DesignTokens = {
   colors: {
-    primary: '#3B82F6', // Blue-500
-    primaryLight: '#60A5FA', // Blue-400
-    primaryDark: '#1D4ED8', // Blue-700
+    primary: '#00B1AC', // Teal
+    primaryLight: '#33C1BC', // Lighter teal
+    primaryDark: '#008B87', // Darker teal
     
-    background: '#FFFFFF',
+    background: '#F0FDFA', // Teal-50 - subtle primary tint
     surface: '#F8FAFC', // Slate-50
     card: '#FFFFFF',
     
@@ -144,9 +144,9 @@ export const lightTheme: DesignTokens = {
   
   typography: {
     fontFamily: {
-      regular: 'System',
-      medium: 'System',
-      bold: 'System',
+      regular: 'Inter-Regular',
+      medium: 'Inter-Medium',
+      bold: 'Inter-Bold',
     },
     fontSize: {
       xs: 12,
@@ -216,11 +216,11 @@ export const lightTheme: DesignTokens = {
 // Dark theme
 export const darkTheme: DesignTokens = {
   colors: {
-    primary: '#60A5FA', // Blue-400
-    primaryLight: '#93C5FD', // Blue-300
-    primaryDark: '#3B82F6', // Blue-500
+    primary: '#33C1BC', // Lighter teal for dark mode
+    primaryLight: '#66D1CC', // Even lighter teal
+    primaryDark: '#00B1AC', // Base teal
     
-    background: '#0F172A', // Slate-900
+    background: '#0D1B1A', // Dark teal background
     surface: '#1E293B', // Slate-800
     card: '#334155', // Slate-700
     
@@ -244,9 +244,9 @@ export const darkTheme: DesignTokens = {
   
   typography: {
     fontFamily: {
-      regular: 'System',
-      medium: 'System',
-      bold: 'System',
+      regular: 'Inter-Regular',
+      medium: 'Inter-Medium',
+      bold: 'Inter-Bold',
     },
     fontSize: {
       xs: 12,

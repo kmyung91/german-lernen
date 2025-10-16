@@ -12,9 +12,11 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Svg, { Circle } from 'react-native-svg';
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_700Bold } from '@expo-google-fonts/inter';
 import { ThemeProvider, useTheme } from './theme-context';
 import { createTextStyle, createCardStyle } from './design-system';
 import { Onboarding } from './components/Onboarding';
@@ -27,20 +29,23 @@ const CARD_HEIGHT = screenHeight * 0.6;
 
 // POS display removed for simplicity and reliability
 
-// Helper to get card indicator emoji
-const getCardIndicatorEmoji = (bucket: string, lastSeen: number | null): string => {
+// Helper to get card indicator emoji (dual-side mastery)
+const getCardIndicatorEmoji = (word: Word, isFlipped: boolean): string => {
   // Unreviewed words (never seen before) get white circle
-  if (lastSeen === null) return '⚪';
+  if (word.last_seen === null) return '⚪';
   
-  // Reviewed words get colored circles based on bucket
-  if (bucket === 'dontKnow') return '🔴'; // Red circle
-  if (bucket === 'learning') return '🟡'; // Yellow circle
-  if (bucket === 'mastered') return '🟢'; // Green circle
+  // Get the appropriate mastery level based on card side
+  const mastery = isFlipped ? word.english_mastery : word.german_mastery;
+  
+  // Show colored circles based on mastery level
+  if (mastery === 'dontKnow') return '🔴'; // Red circle
+  if (mastery === 'learning') return '🟡'; // Yellow circle
+  if (mastery === 'mastered') return '🟢'; // Green circle
   return '⚪'; // Default fallback
 };
 
 function AppContent() {
-  const { designTokens, toggleTheme } = useTheme();
+  const { designTokens, toggleTheme, theme } = useTheme();
   
   // Safety check for design tokens
   if (!designTokens || !designTokens.colors) {
@@ -51,10 +56,12 @@ function AppContent() {
     );
   }
   
-  const styles = createStyles(designTokens);
+  const styles = createStyles(designTokens, theme);
   
   // Onboarding state - only show once
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showMainApp, setShowMainApp] = useState(false);
+  const mainAppOpacity = useRef(new Animated.Value(0)).current;
   
   // Check if onboarding was completed - moved to after database init
   
@@ -62,10 +69,33 @@ function AppContent() {
     try {
       Database.setOnboardingCompleted();
       setShowOnboarding(false);
+      
+      // Start fade-in animation for main app
+      setShowMainApp(true);
+      Animated.timing(mainAppOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
     } catch (error) {
       console.log('Error saving onboarding status:', error);
       setShowOnboarding(false); // Hide anyway
+      setShowMainApp(true);
+      Animated.timing(mainAppOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
     }
+  };
+  
+  // Progress wheel tap handler
+  const handleProgressTap = () => {
+    Alert.alert(
+      'Progress Details',
+      'Detailed statistics and progress tracking will be available in a future update. Stay tuned! 📊',
+      [{ text: 'Got it!', style: 'default' }]
+    );
   };
   
   // Database state
@@ -83,6 +113,15 @@ function AppContent() {
     english_example: string;
     notes: string;
   } | null>(null);
+  
+  // Add new flashcard modal state
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [newWord, setNewWord] = useState({
+    german: '',
+    english: '',
+    german_example: '',
+    english_example: '',
+  });
   
   // Animation state
   const [isFlipped, setIsFlipped] = useState(false);
@@ -115,6 +154,17 @@ function AppContent() {
         try {
           const completed = Database.getOnboardingCompleted();
           setShowOnboarding(!completed);
+          
+          if (completed) {
+            // If onboarding was completed, show main app with fade-in
+            setShowMainApp(true);
+            Animated.timing(mainAppOpacity, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }).start();
+          }
+          
           console.log('Onboarding status checked:', completed ? 'completed' : 'not completed');
         } catch (error) {
           console.log('Error checking onboarding status:', error);
@@ -210,6 +260,55 @@ function AppContent() {
     setEditedWord(null);
   };
 
+  const handleOpenAddModal = () => {
+    setNewWord({
+      german: '',
+      english: '',
+      german_example: '',
+      english_example: '',
+    });
+    setIsAddModalVisible(true);
+  };
+
+  const handleSaveNewWord = () => {
+    if (!newWord.german.trim() || !newWord.english.trim()) {
+      return; // Don't save empty words
+    }
+    
+    try {
+      Database.addNewFlashcard(
+        newWord.german.trim(),
+        newWord.english.trim(),
+        newWord.german_example.trim(),
+        newWord.english_example.trim()
+      );
+      
+      setIsAddModalVisible(false);
+      setNewWord({
+        german: '',
+        english: '',
+        german_example: '',
+        english_example: '',
+      });
+      
+      // Reload words to include the new one
+      loadWords();
+      updateBucketCounts();
+    } catch (error) {
+      console.error('Error adding new word:', error);
+    }
+  };
+
+  const handleCancelAdd = () => {
+    setIsAddModalVisible(false);
+    setNewWord({
+      german: '',
+      english: '',
+      german_example: '',
+      english_example: '',
+    });
+  };
+
   const flipCard = () => {
     const toValue = isFlipped ? 0 : 1;
     Animated.timing(flipAnimation, {
@@ -227,27 +326,38 @@ function AppContent() {
   const onGestureEvent = Animated.event(
     [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
     { 
-      useNativeDriver: true,
+      useNativeDriver: false, // Changed to false for opacity animation
       listener: (event: any) => {
         const { translationX, translationY } = event.nativeEvent;
+        
+        console.log('🎨 Gesture event:', { translationX, translationY });
         
         // Calculate swipe direction and intensity
         const horizontalDistance = Math.abs(translationX);
         const verticalDistance = Math.abs(translationY);
         
-        // Show color feedback when swiping
-        if (horizontalDistance > 20 || verticalDistance > 20) {
-          swipeColorOpacity.setValue(0.3);
+        // Show color feedback when swiping with distance-based intensity
+        if (horizontalDistance > 5 || verticalDistance > 5) {
+          // Calculate intensity based on distance (0.1 to 0.8 opacity)
+          const maxDistance = 100;
+          const intensity = Math.min((horizontalDistance + verticalDistance) / maxDistance, 1);
+          const opacity = 0.1 + (intensity * 0.7); // Range: 0.1 to 0.8
           
-          // Determine color based on direction
-          if (translationY < -50) {
+          console.log('🎨 Showing color overlay with intensity:', opacity);
+          swipeColorOpacity.setValue(opacity);
+          
+          // Determine color based on direction with lower thresholds
+          if (translationY < -20) {
             // Up swipe - green
+            console.log('🎨 Green overlay');
             swipeColor.setValue(2);
-          } else if (translationX < -50) {
+          } else if (translationX < -20) {
             // Left swipe - red
+            console.log('🎨 Red overlay');
             swipeColor.setValue(0);
-          } else if (translationX > 50) {
+          } else if (translationX > 20) {
             // Right swipe - yellow
+            console.log('🎨 Yellow overlay');
             swipeColor.setValue(1);
           }
         } else {
@@ -260,8 +370,12 @@ function AppContent() {
 
   const onHandlerStateChange = (event: any) => {
     if (event.nativeEvent.state === State.END) {
-      // Reset swipe color animation
-      swipeColorOpacity.setValue(0);
+      // Smooth fade out of swipe color animation
+      Animated.timing(swipeColorOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
       
       const { translationX, translationY, velocityX, velocityY } = event.nativeEvent;
       
@@ -371,7 +485,7 @@ function AppContent() {
     ]).start(() => {
       // Update database
       try {
-        Database.updateProgress(currentWord.id, newBucket, isRemove);
+        Database.updateProgress(currentWord.id, newBucket, isRemove, isFlipped);
         updateBucketCounts();
       } catch (error) {
         console.error('Error updating progress:', error);
@@ -464,11 +578,12 @@ function AppContent() {
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <Animated.View style={[styles.container, { opacity: showMainApp ? mainAppOpacity : 0 }]}>
     <View style={styles.container}>
         {/* Header with progress */}
         <View style={styles.header}>
           {/* Column 1: Circular progress indicator with SVG */}
-          <View style={styles.progressCircleContainer}>
+          <TouchableOpacity style={styles.progressCircleContainer} onPress={handleProgressTap}>
             {(() => {
               const size = 60;
               const strokeWidth = 5;
@@ -553,24 +668,24 @@ function AppContent() {
                     )}
                   </Svg>
                   
-                  <Text style={[styles.progressPercentage, { color: '#22C55E' }]}>
+                  <Text style={[styles.progressPercentage, { color: theme === 'light' ? '#FFFFFF' : '#22C55E' }]}>
                     {Math.round(masteredPct * 100)}%
                   </Text>
                 </View>
               );
             })()}
-          </View>
+          </TouchableOpacity>
           
           {/* Column 2: Bucket breakdown (flex, left-aligned, 3 rows) */}
           <View style={styles.bucketStatsContainer}>
             <View style={styles.bucketStatsColumn}>
-              <Text style={[styles.bucketText, { color: '#22C55E' }]}>
+              <Text style={[styles.bucketText, { color: theme === 'light' ? '#FFFFFF' : '#22C55E' }]}>
                 🟢 {bucketCounts.mastered}
               </Text>
-              <Text style={[styles.bucketText, { color: '#EAB308' }]}>
+              <Text style={[styles.bucketText, { color: theme === 'light' ? '#FFFFFF' : '#EAB308' }]}>
                 🟡 {bucketCounts.learning}
               </Text>
-              <Text style={[styles.bucketText, { color: '#EF4444' }]}>
+              <Text style={[styles.bucketText, { color: theme === 'light' ? '#FFFFFF' : '#EF4444' }]}>
                 🔴 {bucketCounts.dontKnow}
               </Text>
             </View>
@@ -578,11 +693,16 @@ function AppContent() {
           
           {/* Column 3: Undo, Edit, and Theme toggle buttons (fixed width) */}
           <View style={styles.headerActions}>
-                {swipeHistory.length > 0 && (
-                  <TouchableOpacity style={styles.undoButton} onPress={handleUndo}>
-                    <Text style={styles.undoButtonText}>↩️</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity 
+                  style={[
+                    styles.undoButton, 
+                    { opacity: swipeHistory.length > 0 ? 1.0 : 0.3 }
+                  ]} 
+                  onPress={handleUndo}
+                  disabled={swipeHistory.length === 0}
+                >
+                  <Text style={styles.undoButtonText}>↩️</Text>
+                </TouchableOpacity>
                 
                 <TouchableOpacity 
                   style={styles.editButton} 
@@ -593,6 +713,13 @@ function AppContent() {
                 
                 <TouchableOpacity style={styles.themeButton} onPress={toggleTheme}>
                   <Text style={styles.themeButtonText}>🌙</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.addButton} 
+                  onPress={handleOpenAddModal}
+                >
+                  <Text style={styles.addButtonText}>➕</Text>
                 </TouchableOpacity>
           </View>
         </View>
@@ -653,24 +780,25 @@ function AppContent() {
                   },
                 ]}
               >
+                {/* Swipe color overlay - moved outside TouchableOpacity to cover entire card */}
+                <Animated.View
+                  style={[
+                    styles.swipeColorOverlay,
+                    {
+                      opacity: swipeColorOpacity,
+                      backgroundColor: swipeColor.interpolate({
+                        inputRange: [0, 1, 2],
+                        outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
+                      }),
+                    },
+                  ]}
+                />
+                
                 <TouchableOpacity
                   style={styles.cardTouchable}
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
-                  {/* Swipe color overlay */}
-                  <Animated.View
-                    style={[
-                      styles.swipeColorOverlay,
-                      {
-                        opacity: swipeColorOpacity,
-                        backgroundColor: swipeColor.interpolate({
-                          inputRange: [0, 1, 2],
-                          outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
-                        }),
-                      },
-                    ]}
-                  />
                   
                   {/* Front side (German) */}
                   <View style={styles.cardSide}>
@@ -689,7 +817,7 @@ function AppContent() {
                   {/* Color indicator emoji - positioned at card bottom */}
                   <Animated.View style={[styles.bucketIndicatorContainer, { opacity: contentOpacity }]}>
                     {showContent && (
-                      <Text style={styles.bucketIndicator}>{getCardIndicatorEmoji(currentWord.bucket, currentWord.last_seen)}</Text>
+                      <Text style={styles.bucketIndicator}>{getCardIndicatorEmoji(currentWord, false)}</Text>
                     )}
                   </Animated.View>
                 </TouchableOpacity>
@@ -711,24 +839,25 @@ function AppContent() {
                   },
                 ]}
               >
+                {/* Swipe color overlay - moved outside TouchableOpacity to cover entire card */}
+                <Animated.View
+                  style={[
+                    styles.swipeColorOverlay,
+                    {
+                      opacity: swipeColorOpacity,
+                      backgroundColor: swipeColor.interpolate({
+                        inputRange: [0, 1, 2],
+                        outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
+                      }),
+                    },
+                  ]}
+                />
+                
                 <TouchableOpacity
                   style={styles.cardTouchable}
                   onPress={flipCard}
                   activeOpacity={0.9}
                 >
-                  {/* Swipe color overlay */}
-                  <Animated.View
-                    style={[
-                      styles.swipeColorOverlay,
-                      {
-                        opacity: swipeColorOpacity,
-                        backgroundColor: swipeColor.interpolate({
-                          inputRange: [0, 1, 2],
-                          outputRange: ['#ff4444', '#ffaa00', '#44ff44'], // red, yellow, green
-                        }),
-                      },
-                    ]}
-                  />
                   
                   {/* Back side (English) */}
                   <View style={styles.cardSide}>
@@ -747,7 +876,7 @@ function AppContent() {
                   {/* Color indicator emoji - positioned at card bottom */}
                   <Animated.View style={[styles.bucketIndicatorContainer, { opacity: contentOpacity }]}>
                     {showContent && (
-                      <Text style={styles.bucketIndicator}>{getCardIndicatorEmoji(currentWord.bucket, currentWord.last_seen)}</Text>
+                      <Text style={styles.bucketIndicator}>{getCardIndicatorEmoji(currentWord, true)}</Text>
                     )}
                   </Animated.View>
                 </TouchableOpacity>
@@ -766,7 +895,7 @@ function AppContent() {
         {/* Edit Modal */}
         <Modal
           visible={isEditModalVisible}
-          animationType="slide"
+          animationType="fade"
           transparent={true}
           onRequestClose={handleCancelEdit}
         >
@@ -876,12 +1005,108 @@ function AppContent() {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+
+        {/* Add New Flashcard Modal */}
+        <Modal
+          visible={isAddModalVisible}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={handleCancelAdd}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContainer}
+          >
+            <View style={styles.modalContent}>
+              <View style={[styles.modalHeader, { backgroundColor: designTokens.colors.surface, borderBottomColor: designTokens.colors.border }]}>
+                <Text style={[styles.modalTitle, { color: designTokens.colors.textPrimary }]}>Add New Flashcard</Text>
+                <TouchableOpacity onPress={handleCancelAdd}>
+                  <Text style={[styles.modalCloseButton, { color: designTokens.colors.textSecondary }]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody}>
+                <Text style={[styles.modalLabel, { color: designTokens.colors.textPrimary }]}>German Word *</Text>
+                <TextInput
+                  style={[styles.modalInput, { 
+                    backgroundColor: designTokens.colors.background, 
+                    color: designTokens.colors.textPrimary,
+                    borderColor: designTokens.colors.border 
+                  }]}
+                  value={newWord.german}
+                  onChangeText={(text) => setNewWord({ ...newWord, german: text })}
+                  placeholder="German word"
+                  placeholderTextColor={designTokens.colors.textSecondary}
+                />
+
+                <Text style={[styles.modalLabel, { color: designTokens.colors.textPrimary }]}>English Translation *</Text>
+                <TextInput
+                  style={[styles.modalInput, { 
+                    backgroundColor: designTokens.colors.background, 
+                    color: designTokens.colors.textPrimary,
+                    borderColor: designTokens.colors.border 
+                  }]}
+                  value={newWord.english}
+                  onChangeText={(text) => setNewWord({ ...newWord, english: text })}
+                  placeholder="English translation"
+                  placeholderTextColor={designTokens.colors.textSecondary}
+                />
+
+                <Text style={[styles.modalLabel, { color: designTokens.colors.textPrimary }]}>German Example (Optional)</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.modalTextArea, { 
+                    backgroundColor: designTokens.colors.background, 
+                    color: designTokens.colors.textPrimary,
+                    borderColor: designTokens.colors.border 
+                  }]}
+                  value={newWord.german_example}
+                  onChangeText={(text) => setNewWord({ ...newWord, german_example: text })}
+                  placeholder="German example sentence"
+                  placeholderTextColor={designTokens.colors.textSecondary}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                <Text style={[styles.modalLabel, { color: designTokens.colors.textPrimary }]}>English Example (Optional)</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.modalTextArea, { 
+                    backgroundColor: designTokens.colors.background, 
+                    color: designTokens.colors.textPrimary,
+                    borderColor: designTokens.colors.border 
+                  }]}
+                  value={newWord.english_example}
+                  onChangeText={(text) => setNewWord({ ...newWord, english_example: text })}
+                  placeholder="English example sentence"
+                  placeholderTextColor={designTokens.colors.textSecondary}
+                  multiline
+                  numberOfLines={3}
+                />
+              </ScrollView>
+
+              <View style={[styles.modalFooter, { backgroundColor: designTokens.colors.surface, borderTopColor: designTokens.colors.border }]}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalCancelButton, { borderColor: designTokens.colors.border }]} 
+                  onPress={handleCancelAdd}
+                >
+                  <Text style={[styles.modalButtonText, { color: designTokens.colors.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.modalSaveButton, { backgroundColor: designTokens.colors.primary }]} 
+                  onPress={handleSaveNewWord}
+                >
+                  <Text style={[styles.modalButtonText, { color: '#FFFFFF' }]}>Add Flashcard</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
     </View>
+      </Animated.View>
     </GestureHandlerRootView>
   );
 }
 
-const createStyles = (designTokens: any) => StyleSheet.create({
+const createStyles = (designTokens: any, theme: string) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: designTokens.colors.background,
@@ -893,9 +1118,9 @@ const createStyles = (designTokens: any) => StyleSheet.create({
     paddingHorizontal: designTokens.spacing.lg,
     paddingTop: designTokens.spacing['3xl'],
     paddingBottom: designTokens.spacing.lg,
-    backgroundColor: designTokens.colors.surface,
+    backgroundColor: theme === 'light' ? designTokens.colors.primary : designTokens.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: designTokens.colors.border,
+    borderBottomColor: theme === 'light' ? designTokens.colors.border : '#1F2937',
     gap: designTokens.spacing.md,
   },
   progressText: {
@@ -935,26 +1160,38 @@ const createStyles = (designTokens: any) => StyleSheet.create({
   editButton: {
     padding: designTokens.spacing.sm,
     borderRadius: designTokens.borderRadius.md,
-    backgroundColor: designTokens.colors.surface,
+    backgroundColor: theme === 'light' ? designTokens.colors.primaryLight : designTokens.colors.card,
   },
   editButtonText: {
     fontSize: designTokens.typography.fontSize.lg,
+    color: theme === 'light' ? '#FFFFFF' : designTokens.colors.textPrimary,
+  },
+  addButton: {
+    padding: designTokens.spacing.sm,
+    borderRadius: designTokens.borderRadius.md,
+    backgroundColor: theme === 'light' ? designTokens.colors.primaryLight : designTokens.colors.card,
+  },
+  addButtonText: {
+    fontSize: designTokens.typography.fontSize.lg,
+    color: theme === 'light' ? '#FFFFFF' : designTokens.colors.textPrimary,
   },
   themeButton: {
     padding: designTokens.spacing.sm,
     borderRadius: designTokens.borderRadius.md,
-    backgroundColor: designTokens.colors.surface,
+    backgroundColor: theme === 'light' ? designTokens.colors.primaryLight : designTokens.colors.card,
   },
   themeButtonText: {
     fontSize: designTokens.typography.fontSize.lg,
+    color: theme === 'light' ? '#FFFFFF' : designTokens.colors.textPrimary,
   },
   undoButton: {
     padding: designTokens.spacing.sm,
     borderRadius: designTokens.borderRadius.md,
-    backgroundColor: designTokens.colors.surface,
+    backgroundColor: theme === 'light' ? designTokens.colors.primaryLight : designTokens.colors.card,
   },
   undoButtonText: {
     fontSize: designTokens.typography.fontSize.lg,
+    color: theme === 'light' ? '#FFFFFF' : designTokens.colors.textPrimary,
   },
   cardContainer: {
     flex: 1,
@@ -1197,6 +1434,21 @@ const createStyles = (designTokens: any) => StyleSheet.create({
 });
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' }}>
+        <ActivityIndicator size="large" color="#00B1AC" />
+        <Text style={{ marginTop: 16, color: '#666666' }}>Loading fonts...</Text>
+      </View>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AppContent />

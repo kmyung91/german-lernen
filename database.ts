@@ -13,6 +13,8 @@ export interface Word {
   times_known: number;
   is_removed: number;
   level: string;
+  german_mastery: string; // 'dontKnow' | 'learning' | 'mastered'
+  english_mastery: string; // 'dontKnow' | 'learning' | 'mastered'
 }
 
 export type BucketType = 'dontKnow' | 'learning' | 'mastered';
@@ -129,11 +131,33 @@ function runMigrations(): void {
       );
     `);
     
+    // Add dual-side mastery columns if they don't exist
+    try {
+      db.execSync(`ALTER TABLE vocabulary ADD COLUMN german_mastery TEXT DEFAULT 'dontKnow';`);
+    } catch (error) {
+      // Column already exists, ignore
+    }
+    
+    try {
+      db.execSync(`ALTER TABLE vocabulary ADD COLUMN english_mastery TEXT DEFAULT 'dontKnow';`);
+    } catch (error) {
+      // Column already exists, ignore
+    }
+    
     // Create indexes
     db.execSync(`
       CREATE INDEX IF NOT EXISTS idx_user_edits_word_id ON user_edits(word_id);
       CREATE INDEX IF NOT EXISTS idx_user_notes_word_id ON user_notes(word_id);
     `);
+    
+    // Fix typos in vocabulary
+    try {
+      db.execSync(`UPDATE vocabulary SET english = 'intensive' WHERE english = 'intensiv';`);
+      db.execSync(`UPDATE vocabulary SET english = 'Great' WHERE english = 'Greay';`);
+      console.log('✅ Typos fixed');
+    } catch (error) {
+      // Typos might not exist, ignore
+    }
     
     console.log('✅ Migrations completed');
   } catch (error) {
@@ -142,45 +166,96 @@ function runMigrations(): void {
   }
 }
 
-// Get next word to study (prioritize unreviewed, then weighted by bucket)
+// Get next word to study (hybrid algorithm with time-based intervals)
 export function getNextWord(): Word | null {
   if (!db) throw new Error('Database not initialized');
 
   try {
-    // PRIORITY 1: Get unreviewed words first (white circle)
-    let result = db.getFirstSync<Word>(`
-      SELECT *
-      FROM vocabulary
-      WHERE last_seen IS NULL AND is_removed = 0
-      ORDER BY RANDOM()
-      LIMIT 1
-    `);
-
-    // PRIORITY 2: If all words reviewed, use weighted selection from buckets
-    if (!result) {
-      // Weighted selection: 70% dontKnow, 25% learning, 5% mastered
-      const rand = Math.random();
-      let bucket = 'dontKnow';
+    const rand = Math.random();
+    
+    if (rand < 0.85) {
+      // PRIORITY 1: Unreviewed words (85% of the time)
+      const result = db.getFirstSync<Word>(`
+        SELECT *
+        FROM vocabulary
+        WHERE last_seen IS NULL AND is_removed = 0
+        ORDER BY RANDOM()
+        LIMIT 1
+      `);
       
-      if (rand < 0.70) {
-        bucket = 'dontKnow';
-      } else if (rand < 0.95) {
-        bucket = 'learning';
-      } else {
-        bucket = 'mastered';
+      if (result) {
+        return result;
       }
-
-      // Try to get a word from the selected bucket
+      // If no unreviewed words, fall through to reviewed words
+    }
+    
+    if (rand < 0.95) {
+      // PRIORITY 2: Due words based on intervals (10% of the time)
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      const threeDays = 3 * oneDay;
+      const oneWeek = 7 * oneDay;
+      
+      // Try to get words that are "due" based on their mastery level and last_seen
+      let result = db.getFirstSync<Word>(`
+        SELECT *
+        FROM vocabulary
+        WHERE (
+          (german_mastery = 'dontKnow' AND last_seen < ?) OR
+          (english_mastery = 'dontKnow' AND last_seen < ?) OR
+          (german_mastery = 'learning' AND last_seen < ?) OR
+          (english_mastery = 'learning' AND last_seen < ?) OR
+          (german_mastery = 'mastered' AND english_mastery = 'mastered' AND last_seen < ?)
+        )
+        AND is_removed = 0 AND last_seen IS NOT NULL
+        ORDER BY last_seen ASC
+        LIMIT 1
+      `, [now - oneDay, now - oneDay, now - threeDays, now - threeDays, now - oneWeek]);
+      
+      if (result) {
+        return result;
+      }
+    }
+    
+    // PRIORITY 3: Random review (5% of the time, or fallback)
+    const reviewRand = Math.random();
+    let result: Word | null = null;
+    
+    if (reviewRand < 0.8) {
+      // Single-side mastered words (80% of random = 4% total)
       result = db.getFirstSync<Word>(`
         SELECT *
         FROM vocabulary
-        WHERE bucket = ? AND is_removed = 0
+        WHERE ((german_mastery = 'mastered' AND english_mastery != 'mastered') 
+        OR (english_mastery = 'mastered' AND german_mastery != 'mastered'))
+        AND is_removed = 0 AND last_seen IS NOT NULL
         ORDER BY RANDOM()
         LIMIT 1
-      `, [bucket]);
+      `);
+    } else {
+      // Fully mastered words (20% of random = 1% total)
+      result = db.getFirstSync<Word>(`
+        SELECT *
+        FROM vocabulary
+        WHERE german_mastery = 'mastered' AND english_mastery = 'mastered'
+        AND is_removed = 0 AND last_seen IS NOT NULL
+        ORDER BY RANDOM()
+        LIMIT 1
+      `);
     }
 
-    // FALLBACK: If still no word, get from any bucket
+    // FALLBACK: If no words in selected category, get from any reviewed word
+    if (!result) {
+      result = db.getFirstSync<Word>(`
+        SELECT *
+        FROM vocabulary
+        WHERE is_removed = 0 AND last_seen IS NOT NULL
+        ORDER BY RANDOM()
+        LIMIT 1
+      `);
+    }
+
+    // FINAL FALLBACK: If still no word, get any word
     if (!result) {
       result = db.getFirstSync<Word>(`
         SELECT *
@@ -227,11 +302,12 @@ export function getWordById(id: number): Word | null {
   }
 }
 
-// Update progress after swipe
+// Update progress after swipe (dual-side mastery)
 export function updateProgress(
   wordId: number,
   bucket: BucketType,
-  isRemoved: boolean = false
+  isRemoved: boolean = false,
+  isFlipped: boolean = false
 ): void {
   if (!db) throw new Error('Database not initialized');
 
@@ -243,18 +319,22 @@ export function updateProgress(
     );
 
     if (currentWord) {
-      const timesKnown = bucket === 'know' 
+      const timesKnown = bucket === 'mastered' 
         ? currentWord.times_known + 1 
         : currentWord.times_known;
 
+      // Determine which side to update based on card state
+      const masteryColumn = isFlipped ? 'english_mastery' : 'german_mastery';
+      
       db.runSync(
         `UPDATE vocabulary 
          SET bucket = ?, 
+             ${masteryColumn} = ?,
              times_known = ?,
              last_seen = ?,
              is_removed = ?
          WHERE id = ?`,
-        [bucket, timesKnown, Date.now(), isRemoved ? 1 : 0, wordId]
+        [bucket, bucket, timesKnown, Date.now(), isRemoved ? 1 : 0, wordId]
       );
     }
   } catch (error) {
@@ -385,7 +465,7 @@ export function updateWord(
     ];
 
     fieldUpdates.forEach(({ field, value }) => {
-      if (value !== undefined) {
+      if (value !== undefined && db) {
         // Check if original value differs from new value
         const originalWord = db.getFirstSync<any>(
           `SELECT ${field} FROM vocabulary WHERE id = ?`,
@@ -508,6 +588,30 @@ export const setOnboardingCompleted = (): void => {
     throw error;
   }
 };
+
+// Add new flashcard to database
+export function addNewFlashcard(
+  german: string,
+  english: string,
+  german_example?: string,
+  english_example?: string
+): number {
+  if (!db) throw new Error('Database not initialized');
+
+  try {
+    const result = db.runSync(
+      `INSERT INTO vocabulary (german, english, german_example, english_example, bucket, last_seen, times_known, is_removed, level, german_mastery, english_mastery)
+       VALUES (?, ?, ?, ?, 'dontKnow', NULL, 0, 0, 'A1', 'dontKnow', 'dontKnow')`,
+      [german, english, german_example || '', english_example || '']
+    );
+    
+    console.log('✅ New flashcard added');
+    return result.lastInsertRowId as number;
+  } catch (error) {
+    console.error('Error adding new flashcard:', error);
+    throw error;
+  }
+}
 
 // Close database
 export function closeDatabase(): void {

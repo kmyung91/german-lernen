@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Dimensions,
   ScrollView,
+  Image,
+  Animated,
 } from 'react-native';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -16,12 +18,11 @@ interface OnboardingProps {
 
 const onboardingScreens = [
   {
-    emoji: '🇩🇪',
-    title: 'Welcome to Currywort!',
-    subtitle: 'Master German vocabulary with our intuitive flashcard system. No ads. No fees.',
+    title: 'Welcome to Currywort',
+    subtitle: 'Learn 5000+ German words',
+    description: 'Track your progress and see how many words you\'ve mastered',
   },
   {
-    emoji: '📚',
     title: 'How to Learn',
     subtitle: 'Swipe cards based on your confidence level',
     instructions: [
@@ -30,28 +31,43 @@ const onboardingScreens = [
       { color: '🔴', text: 'Don\'t know', emoji: '⬅️' },
     ],
   },
-  {
-    emoji: '🚀',
-    title: 'Ready to Start!',
-    subtitle: 'You\'ll learn 5,000+ German words with example sentences',
-    description: 'Track your progress and see how many words you\'ve mastered',
-  },
 ];
 
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [currentScreen, setCurrentScreen] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const handleNext = () => {
     if (currentScreen < onboardingScreens.length - 1) {
-      const nextScreen = currentScreen + 1;
-      setCurrentScreen(nextScreen);
-      scrollViewRef.current?.scrollTo({
-        x: nextScreen * screenWidth,
-        animated: true,
+      // Fade out
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        const nextScreen = currentScreen + 1;
+        setCurrentScreen(nextScreen);
+        scrollViewRef.current?.scrollTo({
+          x: nextScreen * screenWidth,
+          animated: false,
+        });
+        // Fade in
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
       });
     } else {
-      onComplete();
+      // Fade out before completing
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        onComplete();
+      });
     }
   };
 
@@ -78,9 +94,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         style={styles.scrollView}
       >
         {onboardingScreens.map((screen, index) => (
-          <View key={index} style={styles.screen}>
+          <Animated.View key={index} style={[styles.screen, { opacity: fadeAnim }]}>
             <View style={styles.content}>
-              <Text style={styles.emoji} allowFontScaling={true}>{screen.emoji}</Text>
+              {index === 0 && (
+                <Image 
+                  source={require('../assets/icon.png')} 
+                  style={styles.icon}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.title} allowFontScaling={true}>{screen.title}</Text>
               <Text style={styles.subtitle} allowFontScaling={true}>{screen.subtitle}</Text>
               
@@ -100,7 +122,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 <Text style={styles.description} allowFontScaling={true}>{screen.description}</Text>
               )}
             </View>
-          </View>
+          </Animated.View>
         ))}
       </ScrollView>
       
@@ -133,7 +155,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#00B1AC', // Teal background
   },
   scrollView: {
     flex: 1,
@@ -144,35 +166,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 180,
+    paddingTop: 120,
   },
   content: {
     alignItems: 'center',
     maxWidth: 300,
     padding: 20,
   },
-  emoji: {
-    fontSize: 80,
-    marginBottom: 24,
+  icon: {
+    width: 120,
+    height: 120,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 16,
-    color: '#333333',
+    color: '#FFFFFF', // White text for visibility
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '500',
     textAlign: 'center',
-    color: '#666666',
+    color: '#E0F7FA', // Light teal for contrast
     marginBottom: 24,
   },
   description: {
     fontSize: 16,
     textAlign: 'center',
-    color: '#666666',
+    color: '#E0F7FA', // Light teal for contrast
     lineHeight: 24,
   },
   instructions: {
@@ -191,7 +214,7 @@ const styles = StyleSheet.create({
   instructionText: {
     fontSize: 18,
     fontWeight: '500',
-    color: '#333333',
+    color: '#FFFFFF', // White text for visibility
     marginRight: 16,
     width: 100,
     textAlign: 'center',
@@ -209,7 +232,7 @@ const styles = StyleSheet.create({
   },
   skipButtonText: {
     fontSize: 16,
-    color: '#666666',
+    color: '#E0F7FA', // Light teal for contrast
   },
   bottomControls: {
     paddingHorizontal: 24,
@@ -230,10 +253,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   pageIndicatorActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#FFFFFF', // White dots on teal background
   },
   nextButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#FFFFFF', // White button on teal background
     paddingVertical: 16,
     borderRadius: 12,
     width: '100%',
@@ -241,7 +264,7 @@ const styles = StyleSheet.create({
   nextButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#ffffff',
+    color: '#00B1AC', // Teal text on white button
     textAlign: 'center',
   },
 });
